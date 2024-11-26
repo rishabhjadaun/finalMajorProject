@@ -2,13 +2,14 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const Password = require("./models/Password");
+const Status = require("./models/status");
 const Log = require("./models/Log");
 const cors = require("cors");
+const axios = require("axios");
 
 const app = express();
-app.use(bodyParser.json());
-
 app.use(cors());
+app.use(bodyParser.json());
 
 mongoose
   .connect(
@@ -26,26 +27,38 @@ mongoose
   });
 
 // Unlock API
-app.post("/api/unlock", async (req, res) => {
-  const { password } = req.body;
+
+// Add axios for HTTP requests
+app.get("/checkStatus", async (req, res) => {
+
+  try {
+    const storedStatus = await Status.findOne();
+    if (storedStatus && storedStatus.status) {
+      return res.send("success"); // Send success if password matches
+    }
+    res.status(401).send("fail"); // Send fail if password is incorrect
+  } catch (error) {
+    console.error("Error in unlock API:", error);
+    res.status(500).send("error"); // Send error on exception
+  }
+});
+
+app.get("/api/unlock", async (req, res) => {
+  const { password } = req.query; // Use query for simpler requests
 
   try {
     const storedPassword = await Password.findOne();
-    const success = storedPassword && storedPassword.password === password;
-
-    // Log the attempt
-    await Log.create({ passwordAttempt: password, success });
-
-    if (success) {
-      // Signal ESP32
-      return res.json({ success: true });
+    if (storedPassword && storedPassword.password === password) {
+      await Status.findOneAndUpdate({}, {status:true}, {upsert: true})
+      setTimeout(async ()=>{
+        await Status.findOneAndUpdate({}, {status:false}, {upsert: true})
+      }, 10000)
+      return res.send("success"); // Send success if password matches
     }
-    return res
-      .status(401)
-      .json({ success: false, message: "Invalid password" });
+    res.status(401).send("fail"); // Send fail if password is incorrect
   } catch (error) {
-    console.error("Error unlocking:", error);
-    res.status(500).send("Server error");
+    console.error("Error in unlock API:", error);
+    res.status(500).send("error"); // Send error on exception
   }
 });
 
@@ -71,5 +84,5 @@ app.post("/api/change-password", async (req, res) => {
   }
 });
 
-const PORT = 5000;
+const PORT = 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
